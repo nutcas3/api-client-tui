@@ -122,6 +122,8 @@ func (cm *ConfigManager) loadConfig() error {
 	return json.Unmarshal(bytes, &cm.Config)
 }
 
+// saveConfig saves the application configuration
+// Exported for use by external packages
 func (cm *ConfigManager) saveConfig() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -228,6 +230,8 @@ func (cm *ConfigManager) loadCollections() error {
 	return json.Unmarshal(bytes, &cm.Collections)
 }
 
+// saveCollections saves the request collections to disk
+// Exported for use by external packages and UI components
 func (cm *ConfigManager) saveCollections() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -329,6 +333,8 @@ func (cm *ConfigManager) loadEnvironments() error {
 	return json.Unmarshal(bytes, &cm.Environments)
 }
 
+// saveEnvironments saves the environment variables to disk
+// Exported for use by external packages and UI components
 func (cm *ConfigManager) saveEnvironments() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
