@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -59,6 +60,7 @@ type ConfigManager struct {
 	Collections map[string]Collection
 	Environments map[string]Environment
 	configDir   string
+	mu          sync.RWMutex
 }
 
 func NewConfigManager() (*ConfigManager, error) {
@@ -97,9 +99,13 @@ func NewConfigManager() (*ConfigManager, error) {
 }
 
 func (cm *ConfigManager) loadConfig() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	configPath := filepath.Join(cm.configDir, configFile)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return cm.saveConfig()
+		// Create default config if it doesn't exist
+		return cm.saveConfigLocked()
 	}
 
 	file, err := os.Open(configPath)
@@ -117,6 +123,12 @@ func (cm *ConfigManager) loadConfig() error {
 }
 
 func (cm *ConfigManager) saveConfig() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.saveConfigLocked()
+}
+
+func (cm *ConfigManager) saveConfigLocked() error {
 	configPath := filepath.Join(cm.configDir, configFile)
 	bytes, err := json.MarshalIndent(cm.Config, "", "  ")
 	if err != nil {
@@ -127,6 +139,9 @@ func (cm *ConfigManager) saveConfig() error {
 }
 
 func (cm *ConfigManager) loadHistory() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	historyPath := filepath.Join(cm.configDir, historyFile)
 	if _, err := os.Stat(historyPath); os.IsNotExist(err) {
 		cm.History = []RequestItem{}
@@ -148,6 +163,9 @@ func (cm *ConfigManager) loadHistory() error {
 }
 
 func (cm *ConfigManager) saveHistory() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	if !cm.Config.SaveHistory {
 		return nil
 	}
@@ -166,6 +184,9 @@ func (cm *ConfigManager) saveHistory() error {
 }
 
 func (cm *ConfigManager) addToHistory(req RequestItem) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	for i, item := range cm.History {
 		if item.URL == req.URL && item.Method == req.Method {
 			cm.History[i].LastUsed = time.Now()
@@ -184,6 +205,9 @@ func (cm *ConfigManager) addToHistory(req RequestItem) error {
 }
 
 func (cm *ConfigManager) loadCollections() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	collectionsPath := filepath.Join(cm.configDir, collectionsFile)
 	if _, err := os.Stat(collectionsPath); os.IsNotExist(err) {
 		cm.Collections = make(map[string]Collection)
@@ -205,6 +229,9 @@ func (cm *ConfigManager) loadCollections() error {
 }
 
 func (cm *ConfigManager) saveCollections() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	collectionsPath := filepath.Join(cm.configDir, collectionsFile)
 	bytes, err := json.MarshalIndent(cm.Collections, "", "  ")
 	if err != nil {
@@ -215,6 +242,9 @@ func (cm *ConfigManager) saveCollections() error {
 }
 
 func (cm *ConfigManager) addToCollection(collectionName string, req RequestItem) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	collection, exists := cm.Collections[collectionName]
 	if !exists {
 		collection = Collection{
@@ -227,17 +257,35 @@ func (cm *ConfigManager) addToCollection(collectionName string, req RequestItem)
 		if item.URL == req.URL && item.Method == req.Method {
 			collection.Requests[i] = req
 			cm.Collections[collectionName] = collection
-			return cm.saveCollections()
+			
+			// Save without acquiring lock again
+			collectionsPath := filepath.Join(cm.configDir, collectionsFile)
+			bytes, err := json.MarshalIndent(cm.Collections, "", "  ")
+			if err != nil {
+				return err
+			}
+			
+			return os.WriteFile(collectionsPath, bytes, 0644)
 		}
 	}
 
 	collection.Requests = append(collection.Requests, req)
 	cm.Collections[collectionName] = collection
 
-	return cm.saveCollections()
+	// Save without acquiring lock again
+	collectionsPath := filepath.Join(cm.configDir, collectionsFile)
+	bytes, err := json.MarshalIndent(cm.Collections, "", "  ")
+	if err != nil {
+		return err
+	}
+	
+	return os.WriteFile(collectionsPath, bytes, 0644)
 }
 
 func (cm *ConfigManager) loadEnvironments() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	envPath := filepath.Join(cm.configDir, envFile)
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
 		cm.Environments = map[string]Environment{
@@ -256,7 +304,15 @@ func (cm *ConfigManager) loadEnvironments() error {
 				},
 			},
 		}
-		return cm.saveEnvironments()
+		
+		// Save without acquiring lock again
+		envPath := filepath.Join(cm.configDir, envFile)
+		bytes, err := json.MarshalIndent(cm.Environments, "", "  ")
+		if err != nil {
+			return err
+		}
+		
+		return os.WriteFile(envPath, bytes, 0644)
 	}
 
 	file, err := os.Open(envPath)
@@ -274,6 +330,9 @@ func (cm *ConfigManager) loadEnvironments() error {
 }
 
 func (cm *ConfigManager) saveEnvironments() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
 	envPath := filepath.Join(cm.configDir, envFile)
 	bytes, err := json.MarshalIndent(cm.Environments, "", "  ")
 	if err != nil {
@@ -284,6 +343,9 @@ func (cm *ConfigManager) saveEnvironments() error {
 }
 
 func (cm *ConfigManager) getCurrentEnvironment() Environment {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
 	env, exists := cm.Environments[cm.Config.CurrentEnv]
 	if !exists && len(cm.Environments) > 0 {
 		for _, e := range cm.Environments {
@@ -294,6 +356,7 @@ func (cm *ConfigManager) getCurrentEnvironment() Environment {
 }
 
 func (cm *ConfigManager) replaceEnvVars(input string) string {
+	// We use getCurrentEnvironment which already has RLock
 	env := cm.getCurrentEnvironment()
 	if env.Variables == nil {
 		return input
@@ -305,4 +368,97 @@ func (cm *ConfigManager) replaceEnvVars(input string) string {
 		result = strings.ReplaceAll(result, placeholder, value)
 	}
 	return result
+}
+
+// SetCurrentEnv changes the current environment and saves the configuration
+func (cm *ConfigManager) SetCurrentEnv(envName string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	
+	// Check if environment exists
+	if _, exists := cm.Environments[envName]; !exists {
+		return fmt.Errorf("environment %s not found", envName)
+	}
+	
+	// Update current environment
+	cm.Config.CurrentEnv = envName
+	
+	// Save configuration
+	return cm.saveConfigLocked()
+}
+
+// GetAvailableEnvironments returns a list of available environment names
+func (cm *ConfigManager) GetAvailableEnvironments() []string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
+	envs := make([]string, 0, len(cm.Environments))
+	for name := range cm.Environments {
+		envs = append(envs, name)
+	}
+	
+	return envs
+}
+
+// FindHistoryByURL searches the request history for items containing the given URL substring
+func (cm *ConfigManager) FindHistoryByURL(url string) []RequestItem {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
+	var results []RequestItem
+	for _, item := range cm.History {
+		if strings.Contains(item.URL, url) {
+			results = append(results, item)
+		}
+	}
+	
+	return results
+}
+
+// FindHistoryByMethod searches the request history for items with the given HTTP method
+func (cm *ConfigManager) FindHistoryByMethod(method string) []RequestItem {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
+	var results []RequestItem
+	for _, item := range cm.History {
+		if strings.EqualFold(item.Method, method) {
+			results = append(results, item)
+		}
+	}
+	
+	return results
+}
+
+// FindCollectionByName searches for collections with names containing the given substring
+func (cm *ConfigManager) FindCollectionByName(name string) []Collection {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
+	var results []Collection
+	for _, collection := range cm.Collections {
+		if strings.Contains(strings.ToLower(collection.Name), strings.ToLower(name)) {
+			results = append(results, collection)
+		}
+	}
+	
+	return results
+}
+
+// FindRequestsInCollections searches for requests across all collections matching the given criteria
+func (cm *ConfigManager) FindRequestsInCollections(urlSubstr, methodSubstr string) []RequestItem {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	
+	var results []RequestItem
+	for _, collection := range cm.Collections {
+		for _, req := range collection.Requests {
+			if (urlSubstr == "" || strings.Contains(req.URL, urlSubstr)) && 
+			   (methodSubstr == "" || strings.EqualFold(req.Method, methodSubstr)) {
+				results = append(results, req)
+			}
+		}
+	}
+	
+	return results
 }
