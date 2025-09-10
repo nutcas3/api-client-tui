@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/text/encoding/htmlindex"
+	"golang.org/x/text/transform"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -461,7 +464,41 @@ func (m Model) sendRequest() tea.Cmd {
 			}
 		}
 
-		formattedBody := string(respBody)
+		// Try to detect and handle different encodings
+		contentType := resp.Header.Get("Content-Type")
+		encoding := "utf-8" // default
+		if idx := strings.LastIndex(contentType, "charset="); idx != -1 {
+			encoding = strings.TrimSpace(contentType[idx+8:])
+			if semicolon := strings.Index(encoding, ";"); semicolon != -1 {
+				encoding = encoding[:semicolon]
+			}
+		}
+
+		var decodedBody []byte
+		if strings.EqualFold(encoding, "utf-8") {
+			if !utf8.Valid(respBody) {
+				decodedBody = tryAlternativeEncodings(respBody)
+			} else {
+				decodedBody = respBody
+			}
+		} else {
+			if enc, err := htmlindex.Get(encoding); err == nil {
+				if decoded, _, err := transform.Bytes(enc.NewDecoder(), respBody); err == nil {
+					decodedBody = decoded
+				}
+			}
+		}
+
+		if decodedBody == nil {
+			decodedBody = []byte(strings.Map(func(r rune) rune {
+				if r == utf8.RuneError {
+					return '�'
+				}
+				return r
+			}, string(respBody)))
+		}
+
+		formattedBody := string(decodedBody)
 		if m.configManager == nil || m.configManager.Config.AutoFormatJSON {
 			if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
 				var prettyJSON bytes.Buffer
@@ -631,10 +668,50 @@ func (m Model) View() string {
 	return view
 }
 
+func tryAlternativeEncodings(input []byte) []byte {
+	encodings := []string{"windows-1252", "iso-8859-1", "shift-jis", "gbk", "big5"}
+
+	for _, encoding := range encodings {
+		if enc, err := htmlindex.Get(encoding); err == nil {
+			if decoded, _, err := transform.Bytes(enc.NewDecoder(), input); err == nil && utf8.Valid(decoded) {
+				return decoded
+			}
+		}
+	}
+
+	return input // Return original if no encoding works
+}
+
 func main() {
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Println("Error running program:", err)
-		os.Exit(1)
+	// Check if we have piped input
+	stat, _ := os.Stdin.Stat()
+	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		// Read from stdin
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Try to decode the input with various encodings
+		decodedInput := tryAlternativeEncodings(input)
+		
+		// Initialize the model with the decoded input
+		model := initialModel()
+		model.bodyInput.SetValue(string(decodedInput))
+		
+		// Run the program
+		p := tea.NewProgram(model, tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Println("Error running program:", err)
+			os.Exit(1)
+		}
+	} else {
+		// No piped input, run normally
+		p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Println("Error running program:", err)
+			os.Exit(1)
+		}
 	}
 }
