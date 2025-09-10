@@ -74,7 +74,7 @@ var (
 	statusErrorStyle = lipgloss.NewStyle().
 			Foreground(accentColor)
 
-	statusStyle = lipgloss.NewStyle() // Fixing syntax error in style declaration
+	statusStyle = lipgloss.NewStyle() 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(whiteColor).
