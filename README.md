@@ -22,15 +22,22 @@ A powerful terminal-based API client built with [Bubble Tea][bubbletea], providi
 
 ## Installation
 
+### Binary Installation (mac)
+
+```bash
+curl -L https://github.com/nutcas3/api-client-tui/releases/latest/download/api-client-tui -o api-client-tui
+sudo mv api-client-tui /usr/local/bin/
+sudo chmod +x /usr/local/bin/api-client-tui
+api-client-tui
+```
+
 ### From Source
 
 ```bash
 git clone https://github.com/nutcas3/api-client-tui.git
 cd api-client-tui
-
-go build -o api-client
-
-./api-client
+go build -o api-client-tui
+./api-client-tui
 ```
 
 ### Using Go Install
