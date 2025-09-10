@@ -175,22 +175,26 @@ func initialModel() Model {
 	urlInput.Placeholder = "https://api.example.com/endpoint"
 	urlInput.Width = 50
 
+	// Initialize method list with more prominence
 	methodItems := make([]list.Item, len(httpMethods))
 	for i, method := range httpMethods {
 		methodItems[i] = item{title: method}
 	}
-
 	methodDelegate := list.NewDefaultDelegate()
-	methodList := list.New(methodItems, methodDelegate, 30, 10)
-	methodList.Title = "HTTP Methods"
+	methodDelegate.ShowDescription = false
+	methodDelegate.SetSpacing(1)
+
+	methodList := list.New(methodItems, methodDelegate, 30, 8)
+	methodList.Title = "HTTP Method (↑↓ to select)"
 	methodList.Styles.Title = methodList.Styles.Title.
 		Foreground(primaryColor).
 		Bold(true).
-		Padding(0, 1)
+		MarginLeft(1)
 	methodList.SetShowTitle(true)
 	methodList.SetFilteringEnabled(false)
 	methodList.Styles.NoItems = methodList.Styles.NoItems.
 		Foreground(accentColor)
+	methodList.Select(0) // Select GET by default
 
 	headersInput := textinput.New()
 	headersInput.Placeholder = "Content-Type: application/json\nAuthorization: Bearer token"
@@ -386,10 +390,12 @@ func (m *Model) updatePanelSizes() {
 	footerHeight := 2
 	availableHeight := m.height - headerHeight - footerHeight
 
-	methodWidth := max(m.width/3, 30)
-	m.methodList.SetSize(methodWidth, 10)
+	// Method list takes up 1/4 of the width with minimum size
+	methodWidth := max(m.width/4, 25)
+	m.methodList.SetSize(methodWidth, 8)
 
-	m.urlInput.Width = m.width - methodWidth - 6
+	// URL input takes remaining width
+	m.urlInput.Width = m.width - methodWidth - 8
 	
 	m.headersInput.Width = (m.width - 4) / 2
 	m.bodyInput.Width = (m.width - 4) / 2
@@ -574,8 +580,10 @@ func (m Model) View() string {
 
 	header := headerStyle.Render("API Client TUI")
 
-	// Method panel
-	methodStyle := methodPanelStyle
+	// Method panel with enhanced visibility
+	methodStyle := methodPanelStyle.Copy().
+		MarginRight(2).
+		BorderForeground(primaryColor)
 	if m.activePanel == methodPanel {
 		methodStyle = methodStyle.BorderForeground(accentColor)
 	}
