@@ -278,9 +278,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, keys.Tab):
-			switch m.activePanel {
-			case methodPanel:
+			if m.activePanel == methodPanel {
 				m.activePanel = urlPanel
+				return m.updateFocus()
+			}
+
+			switch m.activePanel {
 			case urlPanel:
 				m.activePanel = headersPanel
 			case headersPanel:
@@ -405,33 +408,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateFocus() (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
 	m.urlInput.Blur()
 	m.headersInput.Blur()
 	m.bodyInput.Blur()
 
-
 	switch m.activePanel {
 	case methodPanel:
-
 		return m, nil
+
 	case urlPanel:
 		m.urlInput.Focus()
-		cmd = textinput.Blink
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, textinput.Blink)
+
 	case headersPanel:
 		m.headersInput.Focus()
-		cmd = textinput.Blink
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, textinput.Blink)
+
 	case bodyPanel:
 		m.bodyInput.Focus()
-		cmd = textinput.Blink
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, textinput.Blink)
 	}
 
-	return m, tea.Batch(cmds...)
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
+	return m, nil
 }
 
 func (m *Model) updatePanelSizes() {
