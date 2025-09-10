@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,10 +44,10 @@ var httpMethods = []string{
 }
 
 var (
-	primaryColor = lipgloss.Color("#4ECDC4")
-	accentColor = lipgloss.Color("#FF6B6B")
-	mutedColor = lipgloss.Color("#999999")
-	whiteColor = lipgloss.Color("#FFFFFF")
+	primaryColor = lipgloss.Color("#4ECDC4")   // Teal
+	accentColor  = lipgloss.Color("#FF6B6B")    // Red
+	mutedColor   = lipgloss.Color("#999999")     // Gray
+	whiteColor   = lipgloss.Color("#FFFFFF")
 
 	baseStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder())
@@ -56,18 +58,21 @@ var (
 	blurredStyle = baseStyle.
 			BorderForeground(mutedColor)
 
-	statusStyle = lipgloss.NewStyle().
-				Foreground(primaryColor)
-
-	errorStyle = lipgloss.NewStyle().
-				Foreground(accentColor)
-
 	helpStyle = lipgloss.NewStyle().
 			Foreground(mutedColor)
 
 	methodPanelStyle = baseStyle.
-			BorderForeground(primaryColor).
-			Padding(1)
+				BorderForeground(primaryColor).
+				Padding(1)
+
+	errorStyle = lipgloss.NewStyle().
+			Foreground(accentColor)
+
+	statusSuccessStyle = lipgloss.NewStyle().
+			Foreground(primaryColor)
+
+	statusErrorStyle = lipgloss.NewStyle().
+			Foreground(accentColor)
 
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -150,6 +155,7 @@ type Response struct {
 	FormattedBody string
 	ResponseTime  time.Duration
 	Error         error
+	ContentLength int64
 }
 
 type Model struct {
@@ -168,6 +174,7 @@ type Model struct {
 	showHistory   bool
 	showEnvs      bool
 	configManager *ConfigManager
+	requestError  error
 }
 
 func initialModel() Model {
@@ -263,6 +270,20 @@ func (i item) Title() string {
 func (i item) Description() string { return "" }
 func (i item) FilterValue() string { return i.title }
 
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func truncateString(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "...\n(Response truncated, too long to display fully)"
+}
+
 func (m Model) Init() tea.Cmd {
 	return textinput.Blink
 }
@@ -270,6 +291,9 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
+
+	// Reset request error on any update
+	m.requestError = nil
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -372,6 +396,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case Response:
 		m.response = msg
 		m.loading = false
+		if msg.Error != nil {
+			m.requestError = msg.Error
+		}
 		m.responseView.SetContent(m.formatResponse())
 		return m, nil
 	}
@@ -446,7 +473,7 @@ func (m *Model) updatePanelSizes() {
 	m.methodList.SetSize(methodWidth, 8)
 
 	m.urlInput.Width = m.width - methodWidth - 8
-	
+
 	m.headersInput.Width = (m.width - 4) / 2
 	m.bodyInput.Width = (m.width - 4) / 2
 
@@ -456,6 +483,16 @@ func (m *Model) updatePanelSizes() {
 
 func (m Model) sendRequest() tea.Cmd {
 	return func() tea.Msg {
+		m.requestError = nil
+		m.response = Response{}
+		m.loading = true
+		timeout := 10 * time.Second
+		if m.configManager != nil && m.configManager.Config.Timeout > 0 {
+			timeout = time.Duration(m.configManager.Config.Timeout) * time.Second
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 		url := m.urlInput.Value()
 		if m.configManager != nil {
 			url = m.configManager.replaceEnvVars(url)
@@ -474,7 +511,7 @@ func (m Model) sendRequest() tea.Cmd {
 				continue
 			}
 			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
+			if len(parts) >= 2 {
 				key := strings.TrimSpace(parts[0])
 				value := strings.TrimSpace(parts[1])
 
@@ -513,35 +550,78 @@ func (m Model) sendRequest() tea.Cmd {
 			req.Header.Add(k, v)
 		}
 
-		timeout := 30 * time.Second
-		if m.configManager != nil && m.configManager.Config.Timeout > 0 {
-			timeout = time.Duration(m.configManager.Config.Timeout) * time.Second
-		}
-
 		client := &http.Client{
 			Timeout: timeout,
+			Transport: &http.Transport{
+				ResponseHeaderTimeout: timeout / 2,
+				TLSHandshakeTimeout:   5 * time.Second,
+				DisableKeepAlives:     true,
+				IdleConnTimeout:       2 * time.Second,
+				MaxIdleConns:          100,
+				MaxConnsPerHost:       20,
+				ForceAttemptHTTP2:     true,
+			},
 		}
-		resp, err := client.Do(req)
-		responseTime := time.Since(startTime)
 
+		req = req.WithContext(ctx)
+		resp, err := client.Do(req)
+
+		// Handle request errors with detailed messages
+		responseTime := time.Since(startTime)
 		if err != nil {
+			var errMsg string
+			switch {
+			case ctx.Err() == context.DeadlineExceeded:
+				errMsg = fmt.Sprintf("Request timed out after %v. The server took too long to respond.", timeout)
+			case strings.Contains(err.Error(), "no such host"):
+				errMsg = "Could not resolve host. Please check the URL and your internet connection."
+			case strings.Contains(err.Error(), "connection refused"):
+				errMsg = "Connection refused. The server is not accepting connections."
+			case strings.Contains(err.Error(), "certificate"):
+				errMsg = "SSL/TLS certificate error. The server's security certificate could not be verified."
+			case strings.Contains(err.Error(), "EOF"):
+				errMsg = "Connection closed unexpectedly. The server terminated the connection."
+			case strings.Contains(err.Error(), "i/o timeout"):
+				errMsg = "Connection timed out. The server is not responding."
+			case strings.Contains(err.Error(), "connection reset"):
+				errMsg = "Connection was reset. The server closed the connection abruptly."
+			default:
+				errMsg = "Request failed: " + err.Error()
+			}
 			return Response{
-				Error:        err,
+				Error:        errors.New(errMsg),
 				ResponseTime: responseTime,
 			}
 		}
 		defer resp.Body.Close()
 
-		respBody, err := io.ReadAll(resp.Body)
+		contentLength := resp.ContentLength
+		if contentLength > 10*1024*1024 { // 10MB limit
+			return Response{
+				StatusCode:    resp.StatusCode,
+				Status:        resp.Status,
+				Headers:       resp.Header,
+				Error:         fmt.Errorf("response too large (%.1f MB) - size limit is 10MB", float64(contentLength)/(1024*1024)),
+				ResponseTime:  responseTime,
+				ContentLength: contentLength,
+			}
+		} else if contentLength > 1*1024*1024 { // Show warning for responses over 1MB
+			fmt.Printf("Large response detected (%.1f MB). Reading...", float64(contentLength)/(1024*1024))
+		}
+		var bodyBuf bytes.Buffer
+		limitReader := io.LimitReader(resp.Body, 10*1024*1024)
+		_, err = io.Copy(&bodyBuf, limitReader)
 		if err != nil {
 			return Response{
-				StatusCode:   resp.StatusCode,
-				Status:       resp.Status,
-				Headers:      resp.Header,
-				Error:        err,
-				ResponseTime: responseTime,
+				StatusCode:    resp.StatusCode,
+				Status:        resp.Status,
+				Headers:       resp.Header,
+				Error:         fmt.Errorf("failed to read response: %v", err),
+				ResponseTime:  responseTime,
+				ContentLength: contentLength,
 			}
 		}
+		respBody := bodyBuf.Bytes()
 
 		contentType := resp.Header.Get("Content-Type")
 		encoding := "utf-8" // default
@@ -576,13 +656,20 @@ func (m Model) sendRequest() tea.Cmd {
 			}, string(respBody)))
 		}
 
+		// Format response body based on content type and size
 		formattedBody := string(decodedBody)
-		if m.configManager == nil || m.configManager.Config.AutoFormatJSON {
-			if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
+		if len(decodedBody) > 100*1024 { // 100KB
+			formattedBody = fmt.Sprintf("Large response (%d KB) - showing first 1000 chars:\n%s", len(decodedBody)/1024, truncateString(string(decodedBody), 1000))
+		} else if m.configManager == nil || m.configManager.Config.AutoFormatJSON {
+			if strings.Contains(contentType, "application/json") {
 				var prettyJSON bytes.Buffer
-				if err := json.Indent(&prettyJSON, respBody, "", "  "); err == nil {
+				if err := json.Indent(&prettyJSON, decodedBody, "", "  "); err != nil {
+					formattedBody = "Error formatting JSON: " + err.Error() + "\nRaw response:\n" + string(decodedBody)
+				} else {
 					formattedBody = prettyJSON.String()
 				}
+			} else if strings.Contains(contentType, "text/html") {
+				formattedBody = "HTML Response:\n" + truncateString(string(decodedBody), 1000)
 			}
 		}
 
@@ -603,13 +690,32 @@ func (m Model) sendRequest() tea.Cmd {
 
 func (m Model) formatResponse() string {
 	if m.response.Error != nil {
-		return errorStyle.Render(fmt.Sprintf("Error: %s", m.response.Error))
+		errMsg := fmt.Sprintf("Error: %s", m.response.Error)
+		if m.response.ContentLength > 0 {
+			errMsg += fmt.Sprintf("\nReceived: %.1f KB", float64(m.response.ContentLength)/1024)
+		}
+		if m.response.StatusCode > 0 {
+			errMsg += fmt.Sprintf("\nStatus: %d - %s", m.response.StatusCode, http.StatusText(m.response.StatusCode))
+		}
+		if m.response.ResponseTime > 0 {
+			errMsg += fmt.Sprintf("\nTime: %v", m.response.ResponseTime)
+		}
+		return errorStyle.Render(errMsg)
 	}
 
 	var sb strings.Builder
 
-	sb.WriteString(statusStyle.Render(fmt.Sprintf("Status: %s\n", m.response.Status)))
-	sb.WriteString(fmt.Sprintf("Time: %s\n\n", m.response.ResponseTime))
+	statusStyle := statusSuccessStyle
+	if m.response.StatusCode >= 400 {
+		statusStyle = statusErrorStyle
+	}
+
+	statusLine := fmt.Sprintf("Status: %d - %s", m.response.StatusCode, m.response.Status)
+	if m.response.ContentLength > 0 {
+		statusLine += fmt.Sprintf(" (%.1f KB)", float64(m.response.ContentLength)/1024)
+	}
+	sb.WriteString(statusStyle.Render(statusLine + "\n"))
+	sb.WriteString(fmt.Sprintf("Time: %v\n\n", m.response.ResponseTime))
 
 	sb.WriteString("Headers:\n")
 	for k, v := range m.response.Headers {
@@ -770,7 +876,7 @@ func main() {
 
 		model := initialModel()
 		model.bodyInput.SetValue(string(input))
-		
+
 		p := tea.NewProgram(model, tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Println("Error running program:", err)
