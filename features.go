@@ -51,7 +51,7 @@ type Config struct {
 	CurrentEnv        string `json:"current_env"`
 	ShowResponseTime  bool   `json:"show_response_time"`
 	TruncateResponse  int    `json:"truncate_response"`
-	SyntaxHighlighting bool  `json:"syntax_highlighting"`
+	SyntaxHighlighting bool   `json:"syntax_highlighting"`
 }
 
 type ConfigManager struct {
@@ -123,7 +123,7 @@ func (cm *ConfigManager) loadConfig() error {
 }
 
 // saveConfig saves the application configuration
-// Exported for use by external packages
+// Exported for use by external packages and UI components
 func (cm *ConfigManager) saveConfig() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
