@@ -682,25 +682,52 @@ func tryAlternativeEncodings(input []byte) []byte {
 	return input // Return original if no encoding works
 }
 
+func isTextContent(input []byte) bool {
+	if !utf8.Valid(input) {
+		return false
+	}
+
+	if len(input) > 4 {
+		if bytes.HasPrefix(input, []byte{0x7F, 'E', 'L', 'F'}) || // ELF
+			bytes.HasPrefix(input, []byte{0x4D, 0x5A}) || // PE/DOS
+			bytes.HasPrefix(input, []byte{0x50, 0x4B, 0x03, 0x04}) { // ZIP/JAR/etc
+			return false
+		}
+	}
+
+	nullCount := 0
+	controlCount := 0
+	for _, b := range input {
+		if b == 0x00 {
+			nullCount++
+		} else if b < 0x20 && b != '\n' && b != '\r' && b != '\t' {
+			controlCount++
+		}
+	}
+
+	threshold := float64(len(input)) * 0.05
+	return float64(nullCount+controlCount) <= threshold
+}
+
 func main() {
-	// Check if we have piped input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
-		// Read from stdin
 		input, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Try to decode the input with various encodings
+		if !isTextContent(input) {
+			fmt.Println("tweet content not found")
+			os.Exit(0)
+		}
+
 		decodedInput := tryAlternativeEncodings(input)
 		
-		// Initialize the model with the decoded input
 		model := initialModel()
 		model.bodyInput.SetValue(string(decodedInput))
 		
-		// Run the program
 		p := tea.NewProgram(model, tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Println("Error running program:", err)
