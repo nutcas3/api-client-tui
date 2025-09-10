@@ -182,8 +182,11 @@ func initialModel() Model {
 	methodDelegate := list.NewDefaultDelegate()
 	methodDelegate.ShowDescription = false
 	methodDelegate.SetSpacing(1)
+	methodDelegate.Styles.SelectedTitle = methodDelegate.Styles.SelectedTitle.
+		Foreground(primaryColor).
+		Bold(true)
 
-	methodList := list.New(methodItems, methodDelegate, 30, 8)
+	methodList := list.New(methodItems, methodDelegate, 35, 8)
 	methodList.Title = "HTTP Methods"
 	methodList.Styles.Title = methodList.Styles.Title.
 		Foreground(primaryColor).
@@ -409,8 +412,8 @@ func (m *Model) updatePanelSizes() {
 	footerHeight := 2
 	availableHeight := m.height - headerHeight - footerHeight
 
-	// Method list takes up 1/4 of the width with minimum size
-	methodWidth := max(m.width/4, 25)
+	// Method list takes up fixed width to accommodate descriptions
+	methodWidth := max(m.width/3, 35)
 	m.methodList.SetSize(methodWidth, 8)
 
 	// URL input takes remaining width
