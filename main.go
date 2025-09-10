@@ -174,6 +174,7 @@ func initialModel() Model {
 	urlInput := textinput.New()
 	urlInput.Placeholder = "https://api.example.com/endpoint"
 	urlInput.Width = 50
+	urlInput.Blur()
 
 	methodItems := make([]list.Item, len(httpMethods))
 	for i, method := range httpMethods {
@@ -407,7 +408,11 @@ func (m Model) updateFocus() (tea.Model, tea.Cmd) {
 	m.headersInput.Blur()
 	m.bodyInput.Blur()
 
+
 	switch m.activePanel {
+	case methodPanel:
+
+		return m, nil
 	case urlPanel:
 		m.urlInput.Focus()
 		cmd = textinput.Blink
@@ -430,11 +435,9 @@ func (m *Model) updatePanelSizes() {
 	footerHeight := 2
 	availableHeight := m.height - headerHeight - footerHeight
 
-	// Method list takes up fixed width to accommodate descriptions
 	methodWidth := max(m.width/3, 35)
 	m.methodList.SetSize(methodWidth, 8)
 
-	// URL input takes remaining width
 	m.urlInput.Width = m.width - methodWidth - 8
 	
 	m.headersInput.Width = (m.width - 4) / 2
@@ -457,8 +460,8 @@ func (m Model) sendRequest() tea.Cmd {
 		}
 
 		headers := make(map[string]string)
-		headerLines := strings.Split(m.headersInput.Value(), "\n")
-		for _, line := range headerLines {
+		headerLines := strings.SplitSeq(m.headersInput.Value(), "\n")
+		for line := range headerLines {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
