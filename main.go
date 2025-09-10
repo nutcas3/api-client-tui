@@ -160,17 +160,26 @@ type Model struct {
 func initialModel() Model {
 	urlInput := textinput.New()
 	urlInput.Placeholder = "https://api.example.com/endpoint"
-	urlInput.Focus()
 	urlInput.Width = 50
 
+	// Initialize method list with more prominence
 	methodItems := make([]list.Item, len(httpMethods))
 	for i, method := range httpMethods {
 		methodItems[i] = item{title: method}
 	}
+
+	// Create custom delegate for method list
 	methodDelegate := list.NewDefaultDelegate()
-	methodList := list.New(methodItems, methodDelegate, 0, 0)
-	methodList.Title = "HTTP Method"
-	methodList.SetShowHelp(false)
+	methodList := list.New(methodItems, methodDelegate, 30, 10)
+	methodList.Title = "HTTP Methods"
+	methodList.Styles.Title = methodList.Styles.Title.
+		Foreground(lipgloss.Color("#4ECDC4")).
+		Bold(true).
+		Padding(0, 1)
+	methodList.SetShowTitle(true)
+	methodList.SetFilteringEnabled(false)
+	methodList.Styles.NoItems = methodList.Styles.NoItems.
+		Foreground(lipgloss.Color("#FF6B6B"))
 
 	headersInput := textinput.New()
 	headersInput.Placeholder = "Content-Type: application/json\nAuthorization: Bearer token"
@@ -203,7 +212,7 @@ func initialModel() Model {
 		bodyInput:     bodyInput,
 		responseView:  responseView,
 		spinner:       s,
-		activePanel:   urlPanel,
+		activePanel:   methodPanel, // Start with method panel active
 		configManager: configManager,
 	}
 }
@@ -215,6 +224,13 @@ type item struct {
 func (i item) Title() string       { return i.title }
 func (i item) Description() string { return "" }
 func (i item) FilterValue() string { return i.title }
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
 
 func (m Model) Init() tea.Cmd {
 	return textinput.Blink
@@ -366,18 +382,14 @@ func (m *Model) updatePanelSizes() {
 	footerHeight := 2
 	availableHeight := m.height - headerHeight - footerHeight
 
-	// Method list takes up 1/4 of the width
-	methodWidth := m.width / 4
-	m.methodList.SetSize(methodWidth, 8)
+	methodWidth := max(m.width/3, 30)
+	m.methodList.SetSize(methodWidth, 10)
 
-	// URL input takes remaining width
-	m.urlInput.Width = m.width - methodWidth - 4
+	m.urlInput.Width = m.width - methodWidth - 6
 	
-	// Headers and body panels share remaining space
 	m.headersInput.Width = (m.width - 4) / 2
 	m.bodyInput.Width = (m.width - 4) / 2
 
-	// Response panel takes full width
 	m.responseView.Width = m.width - 4
 	m.responseView.Height = availableHeight / 2
 }
@@ -471,7 +483,6 @@ func (m Model) sendRequest() tea.Cmd {
 			}
 		}
 
-		// Try to detect and handle different encodings
 		contentType := resp.Header.Get("Content-Type")
 		encoding := "utf-8" // default
 		if idx := strings.LastIndex(contentType, "charset="); idx != -1 {
@@ -569,10 +580,12 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Render("API Client TUI")
 
-	// Method Panel - Now positioned at the top
-	methodStyle := blurredStyle
+	methodStyle := blurredStyle.Copy().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4ECDC4")).
+		Padding(1)
 	if m.activePanel == methodPanel {
-		methodStyle = focusedStyle
+		methodStyle = methodStyle.BorderForeground(lipgloss.Color("#FF6B6B"))
 	}
 	methodPanel := methodStyle.Render(m.methodList.View())
 
@@ -607,8 +620,7 @@ func (m Model) View() string {
 	}
 	responsePanel := responseStyle.Render(fmt.Sprintf("%s\n%s", "Response", responseContent))
 
-	// Updated layout with method panel first
-	topSection := lipgloss.JoinVertical(lipgloss.Left,
+	topRow := lipgloss.JoinVertical(lipgloss.Left,
 		methodPanel,
 		urlPanel)
 
@@ -722,10 +734,8 @@ func isTextContent(input []byte) bool {
 }
 
 func main() {
-	// Check if we have piped input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
-		// Read from stdin
 		input, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
@@ -737,18 +747,15 @@ func main() {
 			os.Exit(0)
 		}
 
-		// Initialize the model with the input
 		model := initialModel()
 		model.bodyInput.SetValue(string(input))
 		
-		// Run the program
 		p := tea.NewProgram(model, tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Println("Error running program:", err)
 			os.Exit(1)
 		}
 	} else {
-		// No piped input, run normally
 		p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Println("Error running program:", err)
