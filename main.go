@@ -278,28 +278,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, keys.Tab):
-
-			panelOrder := []int{methodPanel, urlPanel, headersPanel, bodyPanel, responsePanel}
-			for i, panel := range panelOrder {
-				if panel == m.activePanel {
-					m.activePanel = panelOrder[(i+1)%len(panelOrder)]
-					break
-				}
+			switch m.activePanel {
+			case methodPanel:
+				m.activePanel = urlPanel
+			case urlPanel:
+				m.activePanel = headersPanel
+			case headersPanel:
+				m.activePanel = bodyPanel
+			case bodyPanel:
+				m.activePanel = responsePanel
+			default:
+				m.activePanel = methodPanel
 			}
 			return m.updateFocus()
 
 		case key.Matches(msg, keys.ShiftTab):
-			// Reverse tab order
-			panelOrder := []int{methodPanel, urlPanel, headersPanel, bodyPanel, responsePanel}
-			for i, panel := range panelOrder {
-				if panel == m.activePanel {
-					prev := i - 1
-					if prev < 0 {
-						prev = len(panelOrder) - 1
-					}
-					m.activePanel = panelOrder[prev]
-					break
-				}
+			switch m.activePanel {
+			case methodPanel:
+				m.activePanel = responsePanel
+			case urlPanel:
+				m.activePanel = methodPanel
+			case headersPanel:
+				m.activePanel = urlPanel
+			case bodyPanel:
+				m.activePanel = headersPanel
+			case responsePanel:
+				m.activePanel = bodyPanel
 			}
 			return m.updateFocus()
 
