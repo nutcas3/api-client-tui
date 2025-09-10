@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/text/encoding/htmlindex"
-	"golang.org/x/text/transform"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/text/encoding/htmlindex"
+	"golang.org/x/text/transform"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -54,25 +55,25 @@ var (
 				Foreground(lipgloss.Color("#4ECDC4"))
 
 	statusErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF6B6B"))
+				Foreground(lipgloss.Color("#FF6B6B"))
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#999999"))
 )
 
 type keyMap struct {
-	Up           key.Binding
-	Down         key.Binding
-	Left         key.Binding
-	Right        key.Binding
-	Tab          key.Binding
-	ShiftTab     key.Binding
-	Enter        key.Binding
-	Quit         key.Binding
-	ToggleHelp   key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	Left          key.Binding
+	Right         key.Binding
+	Tab           key.Binding
+	ShiftTab      key.Binding
+	Enter         key.Binding
+	Quit          key.Binding
+	ToggleHelp    key.Binding
 	ToggleHistory key.Binding
-	ToggleEnvs   key.Binding
-	SaveRequest  key.Binding
+	ToggleEnvs    key.Binding
+	SaveRequest   key.Binding
 }
 
 var keys = keyMap{
@@ -246,17 +247,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.ToggleHelp):
 			m.showHelp = !m.showHelp
 			return m, nil
-			
+
 		case key.Matches(msg, keys.ToggleHistory):
 			m.showHistory = !m.showHistory
 			m.showEnvs = false // Close other panels
 			return m, nil
-			
+
 		case key.Matches(msg, keys.ToggleEnvs):
 			m.showEnvs = !m.showEnvs
 			m.showHistory = false // Close other panels
 			return m, nil
-			
+
 		case key.Matches(msg, keys.SaveRequest):
 			if m.configManager != nil && m.urlInput.Value() != "" {
 				headers := make(map[string]string)
@@ -271,12 +272,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						headers[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
 					}
 				}
-				
+
 				method := httpMethods[0] // Default to GET
 				if i := m.methodList.Index(); i >= 0 && i < len(httpMethods) {
 					method = httpMethods[i]
 				}
-				
+
 				reqItem := RequestItem{
 					ID:      fmt.Sprintf("%d", time.Now().UnixNano()),
 					Name:    fmt.Sprintf("%s %s", method, m.urlInput.Value()),
@@ -285,7 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Headers: headers,
 					Body:    m.bodyInput.Value(),
 				}
-				
+
 				_ = m.configManager.addToCollection("Default", reqItem)
 			}
 			return m, nil
@@ -402,7 +403,7 @@ func (m Model) sendRequest() tea.Cmd {
 				if m.configManager != nil {
 					value = m.configManager.replaceEnvVars(value)
 				}
-				
+
 				headers[key] = value
 			}
 		}
@@ -601,7 +602,7 @@ func (m Model) View() string {
 
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, urlPanel, methodPanel)
 	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, headersPanel, bodyPanel)
-	
+
 	historyPanel := ""
 	if m.showHistory && m.configManager != nil {
 		historyContent := "No history items"
@@ -622,17 +623,17 @@ func (m Model) View() string {
 			Width(m.width - 4).
 			Render(historyContent)
 	}
-	
+
 	envsPanel := ""
 	if m.showEnvs && m.configManager != nil {
 		envsContent := "No environments configured"
 		if len(m.configManager.Environments) > 0 {
 			var sb strings.Builder
 			sb.WriteString("Environments:\n")
-			
+
 			currentEnv := m.configManager.getCurrentEnvironment()
 			sb.WriteString(fmt.Sprintf("Current: %s\n\n", currentEnv.Name))
-			
+
 			sb.WriteString("Variables:\n")
 			for k, v := range currentEnv.Variables {
 				sb.WriteString(fmt.Sprintf("%s: %s\n", k, v))
@@ -645,7 +646,7 @@ func (m Model) View() string {
 			Width(m.width - 4).
 			Render(envsContent)
 	}
-	
+
 	help := ""
 	if m.showHelp {
 		help = helpStyle.Render("\nTab: Next panel • Shift+Tab: Previous panel • Enter: Send request • Ctrl+h: History • Ctrl+e: Environments • Ctrl+s: Save • q: Quit • ?: Toggle help")
@@ -654,17 +655,17 @@ func (m Model) View() string {
 	}
 
 	view := fmt.Sprintf("%s\n%s\n%s\n%s", header, topRow, middleRow, responsePanel)
-	
+
 	if m.showHistory {
 		view += "\n" + historyPanel
 	}
-	
+
 	if m.showEnvs {
 		view += "\n" + envsPanel
 	}
-	
+
 	view += help
-	
+
 	return view
 }
 
@@ -710,24 +711,35 @@ func isTextContent(input []byte) bool {
 }
 
 func main() {
+	// Check if we have piped input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
+		// Read from stdin
 		input, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
 			os.Exit(1)
 		}
 
-		if !isTextContent(input) {
+		// Quick check for binary content
+		for _, b := range input {
+			if b == 0 {
+				fmt.Println("tweet content not found")
+				os.Exit(0)
+			}
+		}
+
+		// Check if it's valid UTF-8
+		if !utf8.Valid(input) {
 			fmt.Println("tweet content not found")
 			os.Exit(0)
 		}
 
-		decodedInput := tryAlternativeEncodings(input)
-		
+		// Initialize the model with the input
 		model := initialModel()
-		model.bodyInput.SetValue(string(decodedInput))
+		model.bodyInput.SetValue(string(input))
 		
+		// Run the program
 		p := tea.NewProgram(model, tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Println("Error running program:", err)
