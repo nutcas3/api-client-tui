@@ -174,6 +174,7 @@ type Model struct {
 	showHelp      bool
 	showHistory   bool
 	showEnvs      bool
+	lastBody      string
 	configManager *ConfigManager
 	requestError  error
 }
@@ -239,6 +240,10 @@ func initialModel() Model {
 		responseView:  responseView,
 		spinner:       s,
 		activePanel:   methodPanel, // Start with method panel active
+		showHelp:      false,
+		showHistory:   false,
+		showEnvs:      false,
+		lastBody:      bodyInput.Value(),
 		configManager: configManager,
 	}
 }
@@ -293,7 +298,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
-	// Reset request error on any update
 	m.requestError = nil
 
 	switch msg := msg.(type) {
@@ -400,6 +404,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			m.requestError = msg.Error
 		}
+	
+		m.bodyInput.SetValue(m.lastBody)
 		m.responseView.SetContent(m.formatResponse())
 		return m, nil
 	}
@@ -419,6 +425,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bodyPanel:
 		m.bodyInput, cmd = m.bodyInput.Update(msg)
+		m.lastBody = m.bodyInput.Value() // Update lastBody when body input changes
 		cmds = append(cmds, cmd)
 
 	case responsePanel:
@@ -504,7 +511,7 @@ func (m Model) sendRequest() tea.Cmd {
 
 		var reqBody io.Reader
 		if method != "GET" && method != "HEAD" {
-			reqBody = strings.NewReader(m.bodyInput.Value())
+			reqBody = strings.NewReader(m.lastBody)
 		}
 
 		req, err := http.NewRequest(method, url, reqBody)
