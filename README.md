@@ -54,6 +54,8 @@ go install github.com/nutcas3/api-client-tui@latest
 - **Enter**: Send request (when URL panel is focused)
 - **q**: Quit application
 - **?**: Toggle help
+- **Ctrl+h**: Toggle request history
+- **Ctrl+e**: Toggle environment variables
 
 ### Request Building
 
@@ -109,12 +111,17 @@ Use variables in requests:
 
 ### Keyboard Shortcuts
 
+#### Navigation
 - **Tab**: Next panel
 - **Shift+Tab**: Previous panel
-- **Enter**: Send request
-- **Ctrl+h**: Toggle history panel
-- **Ctrl+e**: Toggle environments panel
-- **Ctrl+s**: Save current request to collection
+- **↑/↓**: Navigate items (methods, history)
+
+#### Actions
+- **Enter**: Send request (when URL panel is focused)
+- **Ctrl+h**: Toggle request history
+- **Ctrl+e**: Toggle environment variables
+
+#### General
 - **q**: Quit application
 - **?**: Toggle help
 
@@ -142,15 +149,14 @@ The application uses the following configuration files in the `~/.api-client-tui
 ### Main Config (`config.json`)
 ```json
 {
-  "theme": "dark",
-  "timeout": 30,
-  "history_limit": 100,
+  "timeout": 5,
   "auto_format_json": true,
   "save_history": true,
   "current_env": "development",
   "show_response_time": true,
   "truncate_response": 1000,
-  "syntax_highlighting": true
+  "max_response_size": "10MB",
+  "large_response_warning": "1MB"
 }
 ```
 
@@ -182,12 +188,30 @@ The application uses the following configuration files in the `~/.api-client-tui
 
 ## Troubleshooting
 
-### Common Issues
+### Response Formatting
 
-#### JSON Parsing Errors
-- Ensure JSON body is valid
-- Check for trailing commas
-- Validate JSON structure
+The application automatically handles various response formats:
+
+#### JSON Responses
+- Automatic pretty-printing with proper indentation
+- Error handling for malformed JSON
+- Size-based truncation for large responses (>100KB)
+
+#### Text and HTML Responses
+- Automatic truncation for large responses
+- Preview mode for HTML content
+- Line wrapping for better readability
+
+#### Character Encoding
+- Automatic charset detection from Content-Type headers
+- UTF-8 validation and conversion
+- Fallback to common encodings (windows-1252, iso-8859-1, shift-jis, gbk, big5)
+- Replacement of invalid characters with �
+
+#### Large Responses
+- Size warnings for responses over 1MB
+- Automatic truncation for responses over 10MB
+- Display of response size in KB/MB
 
 #### Authentication Issues
 - Verify token format in headers
@@ -195,9 +219,12 @@ The application uses the following configuration files in the `~/.api-client-tui
 - Ensure correct header names
 
 #### Network Timeouts
-- Check internet connection
-- Verify URL accessibility
-- Consider increasing timeout in config
+- Default timeout is 5 seconds
+- Connection attempts timeout after 2 seconds
+- TLS handshake timeout is 2 seconds
+- Response header timeout is 2.5 seconds
+- Large responses (>1MB) show size warnings
+- Responses over 10MB are automatically truncated
 
 ## Contributing
 
