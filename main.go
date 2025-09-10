@@ -175,7 +175,6 @@ func initialModel() Model {
 	urlInput.Placeholder = "https://api.example.com/endpoint"
 	urlInput.Width = 50
 
-	// Initialize method list with more prominence
 	methodItems := make([]list.Item, len(httpMethods))
 	for i, method := range httpMethods {
 		methodItems[i] = item{title: method}
@@ -185,7 +184,7 @@ func initialModel() Model {
 	methodDelegate.SetSpacing(1)
 
 	methodList := list.New(methodItems, methodDelegate, 30, 8)
-	methodList.Title = "HTTP Method (↑↓ to select)"
+	methodList.Title = "HTTP Methods"
 	methodList.Styles.Title = methodList.Styles.Title.
 		Foreground(primaryColor).
 		Bold(true).
@@ -236,7 +235,27 @@ type item struct {
 	title string
 }
 
-func (i item) Title() string       { return i.title }
+func (i item) Title() string {
+	switch i.title {
+	case "GET":
+		return "GET     - Retrieve data"
+	case "POST":
+		return "POST    - Create new data"
+	case "PUT":
+		return "PUT     - Update existing data"
+	case "DELETE":
+		return "DELETE  - Remove data"
+	case "PATCH":
+		return "PATCH   - Partial update"
+	case "HEAD":
+		return "HEAD    - Headers only"
+	case "OPTIONS":
+		return "OPTIONS - Get allowed methods"
+	default:
+		return i.title
+	}
+}
+
 func (i item) Description() string { return "" }
 func (i item) FilterValue() string { return i.title }
 
@@ -580,7 +599,6 @@ func (m Model) View() string {
 
 	header := headerStyle.Render("API Client TUI")
 
-	// Method panel with enhanced visibility
 	methodStyle := methodPanelStyle.Copy().
 		MarginRight(2).
 		BorderForeground(primaryColor)
@@ -589,28 +607,24 @@ func (m Model) View() string {
 	}
 	methodView := methodStyle.Render(m.methodList.View())
 
-	// URL panel
 	urlStyle := blurredStyle
 	if m.activePanel == urlPanel {
 		urlStyle = focusedStyle
 	}
 	urlView := urlStyle.Render(fmt.Sprintf("%s\n%s", "URL", m.urlInput.View()))
 
-	// Headers panel
 	headersStyle := blurredStyle
 	if m.activePanel == headersPanel {
 		headersStyle = focusedStyle
 	}
 	headersView := headersStyle.Render(fmt.Sprintf("%s\n%s", "Headers", m.headersInput.View()))
 
-	// Body panel
 	bodyStyle := blurredStyle
 	if m.activePanel == bodyPanel {
 		bodyStyle = focusedStyle
 	}
 	bodyView := bodyStyle.Render(fmt.Sprintf("%s\n%s", "Body", m.bodyInput.View()))
 
-	// Response panel
 	responseContent := "No response yet"
 	if m.loading {
 		responseContent = fmt.Sprintf("%s Sending request...", m.spinner.View())
