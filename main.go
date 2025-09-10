@@ -41,24 +41,32 @@ var httpMethods = []string{
 	"OPTIONS",
 }
 
-// Styles
 var (
-	focusedStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#FF6B6B"))
+	baseStyle = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder())
 
-	blurredStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#999999"))
+	focusedBorder = lipgloss.Color("#FF6B6B")
+	blurredBorder = lipgloss.Color("#999999")
+	methodBorder = lipgloss.Color("#4ECDC4")
+
+	focusedStyle = baseStyle.
+			BorderForeground(focusedBorder)
+
+	blurredStyle = baseStyle.
+			BorderForeground(blurredBorder)
 
 	statusSuccessStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#4ECDC4"))
+				Foreground(methodBorder)
 
 	statusErrorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FF6B6B"))
+				Foreground(focusedBorder)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#999999"))
+			Foreground(blurredBorder)
+
+	methodPanelStyle = baseStyle.
+			BorderForeground(methodBorder).
+			Padding(1)
 )
 
 type keyMap struct {
@@ -127,7 +135,6 @@ var keys = keyMap{
 	),
 }
 
-// Response represents an HTTP response
 type Response struct {
 	StatusCode    int
 	Status        string
@@ -138,7 +145,6 @@ type Response struct {
 	Error         error
 }
 
-// Model represents the application state
 type Model struct {
 	urlInput      textinput.Model
 	methodList    list.Model
@@ -162,13 +168,11 @@ func initialModel() Model {
 	urlInput.Placeholder = "https://api.example.com/endpoint"
 	urlInput.Width = 50
 
-	// Initialize method list with more prominence
 	methodItems := make([]list.Item, len(httpMethods))
 	for i, method := range httpMethods {
 		methodItems[i] = item{title: method}
 	}
 
-	// Create custom delegate for method list
 	methodDelegate := list.NewDefaultDelegate()
 	methodList := list.New(methodItems, methodDelegate, 30, 10)
 	methodList.Title = "HTTP Methods"
@@ -277,8 +281,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.SaveRequest):
 			if m.configManager != nil && m.urlInput.Value() != "" {
 				headers := make(map[string]string)
-				headerLines := strings.Split(m.headersInput.Value(), "\n")
-				for _, line := range headerLines {
+				headerLines := strings.SplitSeq(m.headersInput.Value(), "\n")
+				for line := range headerLines {
 					line = strings.TrimSpace(line)
 					if line == "" {
 						continue
@@ -552,6 +556,7 @@ func (m Model) formatResponse() string {
 	if m.response.StatusCode >= 400 {
 		statusStyle = statusErrorStyle
 	}
+
 	sb.WriteString(statusStyle.Render(fmt.Sprintf("Status: %s\n", m.response.Status)))
 	sb.WriteString(fmt.Sprintf("Time: %s\n\n", m.response.ResponseTime))
 
@@ -572,20 +577,18 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	header := lipgloss.NewStyle().
+	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Background(lipgloss.Color("#4ECDC4")).
 		Padding(0, 1).
-		Width(m.width - 2).
-		Render("API Client TUI")
+		Width(m.width - 2)
 
-	methodStyle := blurredStyle.Copy().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#4ECDC4")).
-		Padding(1)
+	header := headerStyle.Render("API Client TUI")
+
+	methodStyle := methodPanelStyle
 	if m.activePanel == methodPanel {
-		methodStyle = methodStyle.BorderForeground(lipgloss.Color("#FF6B6B"))
+		methodStyle = methodStyle.BorderForeground(focusedBorder)
 	}
 	methodPanel := methodStyle.Render(m.methodList.View())
 
@@ -704,33 +707,6 @@ func tryAlternativeEncodings(input []byte) []byte {
 	}
 
 	return input // Return original if no encoding works
-}
-
-func isTextContent(input []byte) bool {
-	if !utf8.Valid(input) {
-		return false
-	}
-
-	if len(input) > 4 {
-		if bytes.HasPrefix(input, []byte{0x7F, 'E', 'L', 'F'}) || // ELF
-			bytes.HasPrefix(input, []byte{0x4D, 0x5A}) || // PE/DOS
-			bytes.HasPrefix(input, []byte{0x50, 0x4B, 0x03, 0x04}) { // ZIP/JAR/etc
-			return false
-		}
-	}
-
-	nullCount := 0
-	controlCount := 0
-	for _, b := range input {
-		if b == 0x00 {
-			nullCount++
-		} else if b < 0x20 && b != '\n' && b != '\r' && b != '\t' {
-			controlCount++
-		}
-	}
-
-	threshold := float64(len(input)) * 0.05
-	return float64(nullCount+controlCount) <= threshold
 }
 
 func main() {
