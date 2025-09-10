@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"io"
 	"net/http"
 	"os"
@@ -15,7 +16,6 @@ import (
 
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
-
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -484,10 +484,8 @@ func (m *Model) updatePanelSizes() {
 
 func (m Model) sendRequest() tea.Cmd {
 	return func() tea.Msg {
-		m.requestError = nil
-		m.response = Response{}
-		m.loading = true
-		timeout := 10 * time.Second
+		// Don't modify model state here - it won't propagate
+		timeout := 5 * time.Second // Set to 5s for reliability
 		if m.configManager != nil && m.configManager.Config.Timeout > 0 {
 			timeout = time.Duration(m.configManager.Config.Timeout) * time.Second
 		}
@@ -504,187 +502,174 @@ func (m Model) sendRequest() tea.Cmd {
 			method = httpMethods[i]
 		}
 
-		headers := make(map[string]string)
-		headerLines := strings.SplitSeq(m.headersInput.Value(), "\n")
-		for line := range headerLines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) >= 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
-
-				if m.configManager != nil {
-					value = m.configManager.replaceEnvVars(value)
-				}
-
-				headers[key] = value
-			}
-		}
-
-		body := m.bodyInput.Value()
-		if m.configManager != nil && body != "" {
-			body = m.configManager.replaceEnvVars(body)
-		}
-
 		var reqBody io.Reader
-		if body != "" && (method == "POST" || method == "PUT" || method == "PATCH") {
-			reqBody = bytes.NewBufferString(body)
+		if method != "GET" && method != "HEAD" {
+			reqBody = strings.NewReader(m.bodyInput.Value())
 		}
 
-		reqItem := RequestItem{
-			URL:     url,
-			Method:  method,
-			Headers: headers,
-			Body:    body,
-		}
-
-		startTime := time.Now()
 		req, err := http.NewRequest(method, url, reqBody)
 		if err != nil {
 			return Response{Error: err}
 		}
 
+		headers := parseHeaders(m.headersInput.Value())
 		for k, v := range headers {
 			req.Header.Add(k, v)
 		}
+		
+		// Add default User-Agent if not set
+		if req.Header.Get("User-Agent") == "" {
+			req.Header.Set("User-Agent", "api-client-tui/1.0")
+		}
 
+		// Use a simpler HTTP client configuration
 		client := &http.Client{
 			Timeout: timeout,
-			Transport: &http.Transport{
-				ResponseHeaderTimeout: timeout / 2,
-				TLSHandshakeTimeout:   5 * time.Second,
-				DisableKeepAlives:     true,
-				IdleConnTimeout:       2 * time.Second,
-				MaxIdleConns:          100,
-				MaxConnsPerHost:       20,
-				ForceAttemptHTTP2:     true,
-			},
 		}
 
 		req = req.WithContext(ctx)
-		resp, err := client.Do(req)
 
-		// Handle request errors with detailed messages
-		responseTime := time.Since(startTime)
-		if err != nil {
-			var errMsg string
-			switch {
-			case ctx.Err() == context.DeadlineExceeded:
-				errMsg = fmt.Sprintf("Request timed out after %v. The server took too long to respond.", timeout)
-			case strings.Contains(err.Error(), "no such host"):
-				errMsg = "Could not resolve host. Please check the URL and your internet connection."
-			case strings.Contains(err.Error(), "connection refused"):
-				errMsg = "Connection refused. The server is not accepting connections."
-			case strings.Contains(err.Error(), "certificate"):
-				errMsg = "SSL/TLS certificate error. The server's security certificate could not be verified."
-			case strings.Contains(err.Error(), "EOF"):
-				errMsg = "Connection closed unexpectedly. The server terminated the connection."
-			case strings.Contains(err.Error(), "i/o timeout"):
-				errMsg = "Connection timed out. The server is not responding."
-			case strings.Contains(err.Error(), "connection reset"):
-				errMsg = "Connection was reset. The server closed the connection abruptly."
-			default:
-				errMsg = "Request failed: " + err.Error()
-			}
-			return Response{
-				Error:        errors.New(errMsg),
-				ResponseTime: responseTime,
-			}
-		}
-		defer resp.Body.Close()
+		resultChan := make(chan Response, 1)
+		startTime := time.Now()
 
-		contentLength := resp.ContentLength
-		if contentLength > 10*1024*1024 { // 10MB limit
-			return Response{
+		go func() {
+			resp, err := client.Do(req)
+			responseTime := time.Since(startTime)
+
+			if err != nil {
+				var errMsg string
+				switch {
+				case ctx.Err() == context.DeadlineExceeded:
+					errMsg = fmt.Sprintf("Request timed out after %v. The server took too long to respond.", timeout)
+				case strings.Contains(err.Error(), "no such host"):
+					errMsg = "Could not resolve host. Please check the URL and your internet connection."
+				case strings.Contains(err.Error(), "connection refused"):
+					errMsg = "Connection refused. The server is not accepting connections."
+				case strings.Contains(err.Error(), "certificate"):
+					errMsg = "SSL/TLS certificate error. The server's security certificate could not be verified."
+				case strings.Contains(err.Error(), "EOF"):
+					errMsg = "Connection closed unexpectedly. The server terminated the connection."
+				case strings.Contains(err.Error(), "i/o timeout"):
+					errMsg = "Connection timed out. The server is not responding."
+				case strings.Contains(err.Error(), "connection reset"):
+					errMsg = "Connection was reset. The server closed the connection abruptly."
+				default:
+					errMsg = "Request failed: " + err.Error()
+				}
+				resultChan <- Response{
+					Error:        errors.New(errMsg),
+					ResponseTime: responseTime,
+				}
+				return
+			}
+			defer resp.Body.Close()
+
+			contentLength := resp.ContentLength
+			if contentLength > 10*1024*1024 { // 10MB limit
+				resultChan <- Response{
+					StatusCode:     resp.StatusCode,
+					Status:         resp.Status,
+					Headers:        resp.Header,
+					Error:          fmt.Errorf("response too large (%.1f MB) - size limit is 10MB", float64(contentLength)/(1024*1024)),
+					ResponseTime:   responseTime,
+					ContentLength: contentLength,
+				}
+				return
+			} else if contentLength > 1*1024*1024 { // Show warning for responses over 1MB
+				fmt.Printf("Large response detected (%.1f MB). Reading...", float64(contentLength)/(1024*1024))
+			}
+
+			var bodyBuf bytes.Buffer
+			limitReader := io.LimitReader(resp.Body, 10*1024*1024)
+			_, err = io.Copy(&bodyBuf, limitReader)
+			if err != nil {
+				resultChan <- Response{
+					StatusCode:     resp.StatusCode,
+					Status:         resp.Status,
+					Headers:        resp.Header,
+					Error:          fmt.Errorf("failed to read response: %v", err),
+					ResponseTime:   responseTime,
+					ContentLength: contentLength,
+				}
+				return
+			}
+			respBody := bodyBuf.Bytes()
+
+			contentType := resp.Header.Get("Content-Type")
+			encoding := "utf-8" // default
+			if idx := strings.LastIndex(contentType, "charset="); idx != -1 {
+				encoding = strings.TrimSpace(contentType[idx+8:])
+				if semicolon := strings.Index(encoding, ";"); semicolon != -1 {
+					encoding = encoding[:semicolon]
+				}
+			}
+
+			var decodedBody []byte
+			if encoding != "utf-8" && encoding != "UTF-8" {
+				if enc, err := htmlindex.Get(encoding); err == nil {
+					if decoded, _, err := transform.Bytes(enc.NewDecoder(), respBody); err == nil && utf8.Valid(decoded) {
+						decodedBody = decoded
+					}
+				}
+			}
+
+			if decodedBody == nil {
+				decodedBody = []byte(strings.Map(func(r rune) rune {
+					if r == utf8.RuneError {
+						return '�'
+					}
+					return r
+				}, string(respBody)))
+			}
+
+			formattedBody := string(decodedBody)
+			if len(decodedBody) > 100*1024 { // 100KB
+				formattedBody = fmt.Sprintf("Large response (%d KB) - showing first 1000 chars:\n%s", len(decodedBody)/1024, truncateString(string(decodedBody), 1000))
+			} else if m.configManager == nil || m.configManager.Config.AutoFormatJSON {
+				if strings.Contains(contentType, "application/json") {
+					var prettyJSON bytes.Buffer
+					if err := json.Indent(&prettyJSON, decodedBody, "", "  "); err != nil {
+						formattedBody = "Error formatting JSON: " + err.Error() + "\nRaw response:\n" + string(decodedBody)
+					} else {
+						formattedBody = prettyJSON.String()
+					}
+				} else if strings.Contains(contentType, "text/html") {
+					formattedBody = "HTML Response:\n" + truncateString(string(decodedBody), 1000)
+				}
+			}
+
+			if m.configManager != nil && m.configManager.Config.SaveHistory {
+				go func() {
+					reqItem := RequestItem{
+						URL:     url,
+						Method:  method,
+						Headers: headers,
+						Body:    m.bodyInput.Value(),
+					}
+					_ = m.configManager.addToHistory(reqItem)
+				}()
+			}
+
+			response := Response{
 				StatusCode:    resp.StatusCode,
 				Status:        resp.Status,
 				Headers:       resp.Header,
-				Error:         fmt.Errorf("response too large (%.1f MB) - size limit is 10MB", float64(contentLength)/(1024*1024)),
+				Body:          string(respBody),
+				FormattedBody: formattedBody,
 				ResponseTime:  responseTime,
 				ContentLength: contentLength,
 			}
-		} else if contentLength > 1*1024*1024 { // Show warning for responses over 1MB
-			fmt.Printf("Large response detected (%.1f MB). Reading...", float64(contentLength)/(1024*1024))
-		}
-		var bodyBuf bytes.Buffer
-		limitReader := io.LimitReader(resp.Body, 10*1024*1024)
-		_, err = io.Copy(&bodyBuf, limitReader)
-		if err != nil {
+			resultChan <- response
+		}()
+
+		select {
+		case res := <-resultChan:
+			return res
+		case <-time.After(timeout + 1*time.Second):
 			return Response{
-				StatusCode:    resp.StatusCode,
-				Status:        resp.Status,
-				Headers:       resp.Header,
-				Error:         fmt.Errorf("failed to read response: %v", err),
-				ResponseTime:  responseTime,
-				ContentLength: contentLength,
+				Error:        fmt.Errorf("forced timeout: request took longer than %v", timeout),
+				ResponseTime: time.Since(startTime),
 			}
-		}
-		respBody := bodyBuf.Bytes()
-
-		contentType := resp.Header.Get("Content-Type")
-		encoding := "utf-8" // default
-		if idx := strings.LastIndex(contentType, "charset="); idx != -1 {
-			encoding = strings.TrimSpace(contentType[idx+8:])
-			if semicolon := strings.Index(encoding, ";"); semicolon != -1 {
-				encoding = encoding[:semicolon]
-			}
-		}
-
-		var decodedBody []byte
-		if strings.EqualFold(encoding, "utf-8") {
-			if !utf8.Valid(respBody) {
-				decodedBody = tryAlternativeEncodings(respBody)
-			} else {
-				decodedBody = respBody
-			}
-		} else {
-			if enc, err := htmlindex.Get(encoding); err == nil {
-				if decoded, _, err := transform.Bytes(enc.NewDecoder(), respBody); err == nil {
-					decodedBody = decoded
-				}
-			}
-		}
-
-		if decodedBody == nil {
-			decodedBody = []byte(strings.Map(func(r rune) rune {
-				if r == utf8.RuneError {
-					return '�'
-				}
-				return r
-			}, string(respBody)))
-		}
-
-		// Format response body based on content type and size
-		formattedBody := string(decodedBody)
-		if len(decodedBody) > 100*1024 { // 100KB
-			formattedBody = fmt.Sprintf("Large response (%d KB) - showing first 1000 chars:\n%s", len(decodedBody)/1024, truncateString(string(decodedBody), 1000))
-		} else if m.configManager == nil || m.configManager.Config.AutoFormatJSON {
-			if strings.Contains(contentType, "application/json") {
-				var prettyJSON bytes.Buffer
-				if err := json.Indent(&prettyJSON, decodedBody, "", "  "); err != nil {
-					formattedBody = "Error formatting JSON: " + err.Error() + "\nRaw response:\n" + string(decodedBody)
-				} else {
-					formattedBody = prettyJSON.String()
-				}
-			} else if strings.Contains(contentType, "text/html") {
-				formattedBody = "HTML Response:\n" + truncateString(string(decodedBody), 1000)
-			}
-		}
-
-		if m.configManager != nil && m.configManager.Config.SaveHistory {
-			_ = m.configManager.addToHistory(reqItem)
-		}
-
-		return Response{
-			StatusCode:    resp.StatusCode,
-			Status:        resp.Status,
-			Headers:       resp.Header,
-			Body:          string(respBody),
-			FormattedBody: formattedBody,
-			ResponseTime:  responseTime,
 		}
 	}
 }
@@ -861,6 +846,26 @@ func tryAlternativeEncodings(input []byte) []byte {
 	}
 
 	return input // Return original if no encoding works
+}
+
+func parseHeaders(input string) map[string]string {
+	headers := make(map[string]string)
+	lines := strings.Split(input, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if key != "" {
+				headers[key] = value
+			}
+		}
+	}
+	return headers
 }
 
 func main() {
