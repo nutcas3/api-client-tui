@@ -74,6 +74,7 @@ var (
 	statusErrorStyle = lipgloss.NewStyle().
 			Foreground(accentColor)
 
+	statusStyle = lipgloss.NewStyle() // Fixing syntax error in style declaration
 	headerStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(whiteColor).
@@ -690,17 +691,19 @@ func (m Model) sendRequest() tea.Cmd {
 
 func (m Model) formatResponse() string {
 	if m.response.Error != nil {
-		errMsg := fmt.Sprintf("Error: %s", m.response.Error)
-		if m.response.ContentLength > 0 {
-			errMsg += fmt.Sprintf("\nReceived: %.1f KB", float64(m.response.ContentLength)/1024)
-		}
+		var sb strings.Builder
+		sb.WriteString(errorStyle.Render("Error: " + m.response.Error.Error()))
+		
 		if m.response.StatusCode > 0 {
-			errMsg += fmt.Sprintf("\nStatus: %d - %s", m.response.StatusCode, http.StatusText(m.response.StatusCode))
+			sb.WriteString(fmt.Sprintf("\nStatus: %d - %s", m.response.StatusCode, http.StatusText(m.response.StatusCode)))
+		}
+		if m.response.ContentLength > 0 {
+			sb.WriteString(fmt.Sprintf("\nReceived: %.1f KB", float64(m.response.ContentLength)/1024))
 		}
 		if m.response.ResponseTime > 0 {
-			errMsg += fmt.Sprintf("\nTime: %v", m.response.ResponseTime)
+			sb.WriteString(fmt.Sprintf("\nTime: %v", m.response.ResponseTime))
 		}
-		return errorStyle.Render(errMsg)
+		return sb.String()
 	}
 
 	var sb strings.Builder
