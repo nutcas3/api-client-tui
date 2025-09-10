@@ -288,7 +288,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateFocus()
 
 		case key.Matches(msg, keys.ShiftTab):
-
+			// Reverse tab order
 			panelOrder := []int{methodPanel, urlPanel, headersPanel, bodyPanel, responsePanel}
 			for i, panel := range panelOrder {
 				if panel == m.activePanel {
@@ -300,6 +300,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+			return m.updateFocus()
 
 		case key.Matches(msg, keys.Enter):
 			if m.activePanel == urlPanel && m.urlInput.Value() != "" {
