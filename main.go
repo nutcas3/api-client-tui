@@ -174,6 +174,7 @@ type Model struct {
 	showHelp      bool
 	showHistory   bool
 	showEnvs      bool
+	lastBody      string
 	configManager *ConfigManager
 	requestError  error
 }
@@ -239,6 +240,10 @@ func initialModel() Model {
 		responseView:  responseView,
 		spinner:       s,
 		activePanel:   methodPanel, // Start with method panel active
+		showHelp:      false,
+		showHistory:   false,
+		showEnvs:      false,
+		lastBody:      bodyInput.Value(),
 		configManager: configManager,
 	}
 }
@@ -293,7 +298,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
-	// Reset request error on any update
 	m.requestError = nil
 
 	switch msg := msg.(type) {
@@ -338,6 +342,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Enter):
 			if m.activePanel == urlPanel && m.urlInput.Value() != "" {
 				m.loading = true
+				m.lastBody = m.bodyInput.Value()
 				return m, m.sendRequest()
 			}
 
@@ -400,6 +405,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Error != nil {
 			m.requestError = msg.Error
 		}
+	
+		m.bodyInput.SetValue(m.lastBody)
 		m.responseView.SetContent(m.formatResponse())
 		return m, nil
 	}
