@@ -31,7 +31,7 @@ sudo mv api-client-tui /usr/local/bin/
 
 sudo chmod +x /usr/local/bin/api-client-tui
 
-open api-client-tui
+api-client-tui
 
 ```
 
