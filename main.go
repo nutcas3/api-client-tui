@@ -366,12 +366,18 @@ func (m *Model) updatePanelSizes() {
 	footerHeight := 2
 	availableHeight := m.height - headerHeight - footerHeight
 
-	m.urlInput.Width = m.width - 4
-	m.headersInput.Width = m.width - 4
-	m.bodyInput.Width = m.width - 4
+	// Method list takes up 1/4 of the width
+	methodWidth := m.width / 4
+	m.methodList.SetSize(methodWidth, 8)
 
-	m.methodList.SetSize(20, 10)
+	// URL input takes remaining width
+	m.urlInput.Width = m.width - methodWidth - 4
+	
+	// Headers and body panels share remaining space
+	m.headersInput.Width = (m.width - 4) / 2
+	m.bodyInput.Width = (m.width - 4) / 2
 
+	// Response panel takes full width
 	m.responseView.Width = m.width - 4
 	m.responseView.Height = availableHeight / 2
 }
@@ -563,17 +569,18 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Render("API Client TUI")
 
-	urlStyle := blurredStyle
-	if m.activePanel == urlPanel {
-		urlStyle = focusedStyle
-	}
-	urlPanel := urlStyle.Render(fmt.Sprintf("%s\n%s", "URL", m.urlInput.View()))
-
+	// Method Panel - Now positioned at the top
 	methodStyle := blurredStyle
 	if m.activePanel == methodPanel {
 		methodStyle = focusedStyle
 	}
 	methodPanel := methodStyle.Render(m.methodList.View())
+
+	urlStyle := blurredStyle
+	if m.activePanel == urlPanel {
+		urlStyle = focusedStyle
+	}
+	urlPanel := urlStyle.Render(fmt.Sprintf("%s\n%s", "URL", m.urlInput.View()))
 
 	headersStyle := blurredStyle
 	if m.activePanel == headersPanel {
@@ -600,7 +607,11 @@ func (m Model) View() string {
 	}
 	responsePanel := responseStyle.Render(fmt.Sprintf("%s\n%s", "Response", responseContent))
 
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, urlPanel, methodPanel)
+	// Updated layout with method panel first
+	topSection := lipgloss.JoinVertical(lipgloss.Left,
+		methodPanel,
+		urlPanel)
+
 	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, headersPanel, bodyPanel)
 
 	historyPanel := ""
@@ -721,16 +732,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Quick check for binary content
-		for _, b := range input {
-			if b == 0 {
-				fmt.Println("tweet content not found")
-				os.Exit(0)
-			}
-		}
-
-		// Check if it's valid UTF-8
-		if !utf8.Valid(input) {
+		if !utf8.Valid(input) || bytes.Contains(input, []byte{0}) {
 			fmt.Println("tweet content not found")
 			os.Exit(0)
 		}
