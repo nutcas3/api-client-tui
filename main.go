@@ -342,7 +342,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Enter):
 			if m.activePanel == urlPanel && m.urlInput.Value() != "" {
 				m.loading = true
-				m.lastBody = m.bodyInput.Value()
 				return m, m.sendRequest()
 			}
 
@@ -426,6 +425,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bodyPanel:
 		m.bodyInput, cmd = m.bodyInput.Update(msg)
+		m.lastBody = m.bodyInput.Value() // Update lastBody when body input changes
 		cmds = append(cmds, cmd)
 
 	case responsePanel:
@@ -511,7 +511,7 @@ func (m Model) sendRequest() tea.Cmd {
 
 		var reqBody io.Reader
 		if method != "GET" && method != "HEAD" {
-			reqBody = strings.NewReader(m.bodyInput.Value())
+			reqBody = strings.NewReader(m.lastBody)
 		}
 
 		req, err := http.NewRequest(method, url, reqBody)
