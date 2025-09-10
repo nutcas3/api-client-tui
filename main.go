@@ -277,12 +277,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, keys.Tab):
-			m.activePanel = (m.activePanel + 1) % 5
+
+			panelOrder := []int{methodPanel, urlPanel, headersPanel, bodyPanel, responsePanel}
+			for i, panel := range panelOrder {
+				if panel == m.activePanel {
+					m.activePanel = panelOrder[(i+1)%len(panelOrder)]
+					break
+				}
+			}
 			return m.updateFocus()
 
 		case key.Matches(msg, keys.ShiftTab):
-			m.activePanel = (m.activePanel - 1 + 5) % 5
-			return m.updateFocus()
+
+			panelOrder := []int{methodPanel, urlPanel, headersPanel, bodyPanel, responsePanel}
+			for i, panel := range panelOrder {
+				if panel == m.activePanel {
+					prev := i - 1
+					if prev < 0 {
+						prev = len(panelOrder) - 1
+					}
+					m.activePanel = panelOrder[prev]
+					break
+				}
+			}
 
 		case key.Matches(msg, keys.Enter):
 			if m.activePanel == urlPanel && m.urlInput.Value() != "" {
