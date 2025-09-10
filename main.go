@@ -42,31 +42,38 @@ var httpMethods = []string{
 }
 
 var (
+	primaryColor = lipgloss.Color("#4ECDC4")
+	accentColor = lipgloss.Color("#FF6B6B")
+	mutedColor = lipgloss.Color("#999999")
+	whiteColor = lipgloss.Color("#FFFFFF")
+
 	baseStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder())
 
-	focusedBorder = lipgloss.Color("#FF6B6B")
-	blurredBorder = lipgloss.Color("#999999")
-	methodBorder = lipgloss.Color("#4ECDC4")
-
 	focusedStyle = baseStyle.
-			BorderForeground(focusedBorder)
+			BorderForeground(accentColor)
 
 	blurredStyle = baseStyle.
-			BorderForeground(blurredBorder)
+			BorderForeground(mutedColor)
 
-	statusSuccessStyle = lipgloss.NewStyle().
-				Foreground(methodBorder)
+	statusStyle = lipgloss.NewStyle().
+				Foreground(primaryColor)
 
-	statusErrorStyle = lipgloss.NewStyle().
-				Foreground(focusedBorder)
+	errorStyle = lipgloss.NewStyle().
+				Foreground(accentColor)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(blurredBorder)
+			Foreground(mutedColor)
 
 	methodPanelStyle = baseStyle.
-			BorderForeground(methodBorder).
+			BorderForeground(primaryColor).
 			Padding(1)
+
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(whiteColor).
+			Background(primaryColor).
+			Padding(0, 1)
 )
 
 type keyMap struct {
@@ -177,13 +184,13 @@ func initialModel() Model {
 	methodList := list.New(methodItems, methodDelegate, 30, 10)
 	methodList.Title = "HTTP Methods"
 	methodList.Styles.Title = methodList.Styles.Title.
-		Foreground(lipgloss.Color("#4ECDC4")).
+		Foreground(primaryColor).
 		Bold(true).
 		Padding(0, 1)
 	methodList.SetShowTitle(true)
 	methodList.SetFilteringEnabled(false)
 	methodList.Styles.NoItems = methodList.Styles.NoItems.
-		Foreground(lipgloss.Color("#FF6B6B"))
+		Foreground(accentColor)
 
 	headersInput := textinput.New()
 	headersInput.Placeholder = "Content-Type: application/json\nAuthorization: Bearer token"
@@ -202,7 +209,7 @@ func initialModel() Model {
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
+	s.Style = lipgloss.NewStyle().Foreground(accentColor)
 
 	configManager, err := NewConfigManager()
 	if err != nil {
@@ -228,13 +235,6 @@ type item struct {
 func (i item) Title() string       { return i.title }
 func (i item) Description() string { return "" }
 func (i item) FilterValue() string { return i.title }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 func (m Model) Init() tea.Cmd {
 	return textinput.Blink
@@ -547,15 +547,10 @@ func (m Model) sendRequest() tea.Cmd {
 
 func (m Model) formatResponse() string {
 	if m.response.Error != nil {
-		return statusErrorStyle.Render(fmt.Sprintf("Error: %s", m.response.Error))
+		return errorStyle.Render(fmt.Sprintf("Error: %s", m.response.Error))
 	}
 
 	var sb strings.Builder
-
-	statusStyle := statusSuccessStyle
-	if m.response.StatusCode >= 400 {
-		statusStyle = statusErrorStyle
-	}
 
 	sb.WriteString(statusStyle.Render(fmt.Sprintf("Status: %s\n", m.response.Status)))
 	sb.WriteString(fmt.Sprintf("Time: %s\n\n", m.response.ResponseTime))
@@ -577,57 +572,54 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#4ECDC4")).
-		Padding(0, 1).
-		Width(m.width - 2)
-
 	header := headerStyle.Render("API Client TUI")
 
+	// Method panel
 	methodStyle := methodPanelStyle
 	if m.activePanel == methodPanel {
-		methodStyle = methodStyle.BorderForeground(focusedBorder)
+		methodStyle = methodStyle.BorderForeground(accentColor)
 	}
-	methodPanel := methodStyle.Render(m.methodList.View())
+	methodView := methodStyle.Render(m.methodList.View())
 
+	// URL panel
 	urlStyle := blurredStyle
 	if m.activePanel == urlPanel {
 		urlStyle = focusedStyle
 	}
-	urlPanel := urlStyle.Render(fmt.Sprintf("%s\n%s", "URL", m.urlInput.View()))
+	urlView := urlStyle.Render(fmt.Sprintf("%s\n%s", "URL", m.urlInput.View()))
 
+	// Headers panel
 	headersStyle := blurredStyle
 	if m.activePanel == headersPanel {
 		headersStyle = focusedStyle
 	}
-	headersPanel := headersStyle.Render(fmt.Sprintf("%s\n%s", "Headers", m.headersInput.View()))
+	headersView := headersStyle.Render(fmt.Sprintf("%s\n%s", "Headers", m.headersInput.View()))
 
+	// Body panel
 	bodyStyle := blurredStyle
 	if m.activePanel == bodyPanel {
 		bodyStyle = focusedStyle
 	}
-	bodyPanel := bodyStyle.Render(fmt.Sprintf("%s\n%s", "Body", m.bodyInput.View()))
+	bodyView := bodyStyle.Render(fmt.Sprintf("%s\n%s", "Body", m.bodyInput.View()))
 
-	responseStyle := blurredStyle
-	if m.activePanel == responsePanel {
-		responseStyle = focusedStyle
-	}
-
+	// Response panel
 	responseContent := "No response yet"
 	if m.loading {
 		responseContent = fmt.Sprintf("%s Sending request...", m.spinner.View())
 	} else if m.response.StatusCode > 0 || m.response.Error != nil {
 		responseContent = m.responseView.View()
 	}
-	responsePanel := responseStyle.Render(fmt.Sprintf("%s\n%s", "Response", responseContent))
+	responseStyle := blurredStyle
+	if m.activePanel == responsePanel {
+		responseStyle = focusedStyle
+	}
+	responseView := responseStyle.Render(fmt.Sprintf("%s\n%s", "Response", responseContent))
 
 	topRow := lipgloss.JoinVertical(lipgloss.Left,
-		methodPanel,
-		urlPanel)
+		methodView,
+		urlView)
 
-	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, headersPanel, bodyPanel)
+	middleRow := lipgloss.JoinHorizontal(lipgloss.Top, headersView, bodyView)
 
 	historyPanel := ""
 	if m.showHistory && m.configManager != nil {
@@ -645,7 +637,7 @@ func (m Model) View() string {
 		}
 		historyPanel = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#4ECDC4")).
+			BorderForeground(primaryColor).
 			Width(m.width - 4).
 			Render(historyContent)
 	}
@@ -668,7 +660,7 @@ func (m Model) View() string {
 		}
 		envsPanel = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#4ECDC4")).
+			BorderForeground(primaryColor).
 			Width(m.width - 4).
 			Render(envsContent)
 	}
@@ -680,7 +672,7 @@ func (m Model) View() string {
 		help = helpStyle.Render("\nPress ? for help")
 	}
 
-	view := fmt.Sprintf("%s\n%s\n%s\n%s", header, topRow, middleRow, responsePanel)
+	view := fmt.Sprintf("%s\n%s\n%s\n%s", header, topRow, middleRow, responseView)
 
 	if m.showHistory {
 		view += "\n" + historyPanel
